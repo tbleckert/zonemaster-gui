@@ -1,5 +1,9 @@
 <script lang="ts">
-    import type { ResultData, ResultLevel } from '@/lib/client.ts';
+    import {
+        getTldUrl,
+        type ResultData,
+        type ResultLevel,
+    } from '@/lib/client.ts';
     import Stack from '@/lib/components/Stack/Stack.svelte';
     import Button from '@/lib/components/Button/Button.svelte';
     import FilterToggle from '@/lib/components/FilterToggle/FilterToggle.svelte';
@@ -123,7 +127,30 @@
         shareUrl = shareUrl.split('#')[0];
     }
 
-    let TLDURL = window.location.href;
+    let tldUrl = $state('');
+
+    $effect(() => {
+        let active = true;
+        tldUrl = '';
+        showURL = false;
+
+        getTldUrl(data.params.domain)
+            .then(({ url }) => {
+                if (active) {
+                    tldUrl = url ?? '';
+                }
+            })
+            .catch(() => {
+                // The optional TLD URL must not prevent displaying the results.
+                if (active) {
+                    tldUrl = '';
+                }
+            });
+
+        return () => {
+            active = false;
+        };
+    });
 </script>
 
 <div class="zm-result">
@@ -139,45 +166,50 @@
             >
         </div>
         <Stack middle gap="xs">
-            <div class="zm-popover zm-u-hide">
-                <Button
-                    variant="secondary"
-                    size="small"
-                    type="button"
-                    aria-controls="copyTLDURLDialog"
-                    onclick={() => {
-                        showURL = !showURL;
-                        showExport = false;
-                        showShare = false;
-                    }}
-                    id="zmTLDURLButton"
-                >
-                    <i class="bi bi-link-45deg"></i>
-                    {m.tldURL()}
-                </Button>
-                <div
-                    class="zm-popover__content"
-                    role="dialog"
-                    id="copyTLDURLDialog"
-                    style:display={showURL ? 'block' : 'none'}
-                >
-                    <div
-                        class="{stack.stack} {stack.stretch} {stack.spaceBetween} {stack[
-                            'gap--s'
-                        ]}"
+            {#if tldUrl}
+                <div class="zm-popover">
+                    <Button
+                        variant="secondary"
+                        size="small"
+                        type="button"
+                        aria-controls="copyTLDURLDialog"
+                        aria-expanded={showURL}
+                        onclick={() => {
+                            showURL = !showURL;
+                            showExport = false;
+                            showShare = false;
+                        }}
+                        id="zmTLDURLButton"
                     >
-                        <Input
-                            matchContentWidth
-                            size="small"
-                            type="text"
-                            readonly
-                            name="url"
-                            value={TLDURL}
-                        />
-                        <Copy value={TLDURL} />
+                        <i class="bi bi-link-45deg"></i>
+                        {m.tldURL()}
+                    </Button>
+                    <div
+                        class="zm-popover__content"
+                        role="dialog"
+                        aria-labelledby="zmTLDURLButton"
+                        id="copyTLDURLDialog"
+                        style:display={showURL ? 'block' : 'none'}
+                    >
+                        <div
+                            class="{stack.stack} {stack.stretch} {stack.spaceBetween} {stack[
+                                'gap--s'
+                            ]}"
+                        >
+                            <Input
+                                matchContentWidth
+                                size="small"
+                                type="text"
+                                readonly
+                                name="url"
+                                aria-label={m.tldURL()}
+                                value={tldUrl}
+                            />
+                            <Copy value={tldUrl} />
+                        </div>
                     </div>
                 </div>
-            </div>
+            {/if}
             <History {data} />
             <div class="zm-popover">
                 <Button
