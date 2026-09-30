@@ -103,23 +103,23 @@
     }
 
     // Handle popover close on click outside
-    document.addEventListener('click', (e: Event) => {
+    function onDocumentClick(e: MouseEvent) {
         const target = e.target as Element;
         if (!target.closest('.zm-popover')) {
             showExport = false;
             showShare = false;
             showURL = false;
         }
-    });
+    }
 
     // Handle popover close on escape key
-    document.addEventListener('keydown', (e: KeyboardEvent) => {
+    function onDocumentKeydown(e: KeyboardEvent) {
         if (e.key === 'Escape') {
             showExport = false;
             showShare = false;
             showURL = false;
         }
-    });
+    }
 
     let shareUrl = window.location.href;
 
@@ -128,13 +128,16 @@
     }
 
     let tldUrl = $state('');
+    // Depend on the domain only, so a new result object for the same domain
+    // doesn't refetch the URL.
+    const domain = $derived(data.params.domain);
 
     $effect(() => {
         let active = true;
         tldUrl = '';
         showURL = false;
 
-        getTldUrl(data.params.domain)
+        getTldUrl(domain)
             .then(({ url }) => {
                 if (active) {
                     tldUrl = url ?? '';
@@ -142,9 +145,6 @@
             })
             .catch(() => {
                 // The optional TLD URL must not prevent displaying the results.
-                if (active) {
-                    tldUrl = '';
-                }
             });
 
         return () => {
@@ -152,6 +152,8 @@
         };
     });
 </script>
+
+<svelte:document onclick={onDocumentClick} onkeydown={onDocumentKeydown} />
 
 <div class="zm-result">
     <h2 class="zm-result__title">{m.testResultFor()} {data.params.domain}</h2>
@@ -165,9 +167,9 @@
                 }).format(new Date(data.created_at))}</time
             >
         </div>
-        <Stack middle gap="xs">
+        <Stack middle wrap gap="xs" class="zm-popover-row">
             {#if tldUrl}
-                <div class="zm-popover">
+                <div class="zm-popover zm-popover--start">
                     <Button
                         variant="secondary"
                         size="small"
@@ -265,12 +267,13 @@
                     </div>
                 </div>
             </div>
-            <div class="zm-popover">
+            <div class="zm-popover zm-popover--end">
                 <Button
                     variant="secondary"
                     size="small"
                     type="button"
                     aria-controls="copyURLDialog"
+                    aria-expanded={showShare}
                     onclick={() => {
                         showShare = !showShare;
                         showExport = false;

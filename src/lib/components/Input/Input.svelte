@@ -66,7 +66,7 @@
     <label for={id} class="zm-label">{label}</label>
 {/if}
 <input name={name} id={id} bind:value={value} type={type} class={['zm-input', `zm-input--${size}`, className]} disabled={disabled}
-       placeholder={placeholder} oninput={onInput} style="min-width: {inputWidth}px" {...restProps} />
+       placeholder={placeholder} oninput={onInput} style:min-width="0" style:width={matchContentWidth ? `${inputWidth}px` : undefined} {...restProps} />
 {#if error}
     <div class="zm-input-error">{error}</div>
 {/if}

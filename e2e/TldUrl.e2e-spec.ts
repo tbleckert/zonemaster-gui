@@ -3,9 +3,12 @@ import { test, expect } from './global-setup';
 
 const resultPath = '/en/result/226f6d4f44ae3f80/';
 
+const isTldUrlRequest = (request: Request) =>
+    request.postDataJSON()?.method === 'get_tld_url';
+
 async function mockTldUrl(page: Page, handle: (route: Route) => Promise<void>) {
     await page.route(/\/api$/, async (route) => {
-        if (route.request().postDataJSON()?.method === 'get_tld_url') {
+        if (isTldUrlRequest(route.request())) {
             await handle(route);
         } else {
             await route.fallback();
@@ -13,9 +16,12 @@ async function mockTldUrl(page: Page, handle: (route: Route) => Promise<void>) {
     });
 }
 
-async function fulfillTldUrl(route: Route, result: { url?: string }) {
+async function fulfillRpc(
+    route: Route,
+    payload: { result: { url?: string } } | { error: { code: number; message: string } },
+) {
     await route.fulfill({
-        json: { jsonrpc: '2.0', id: route.request().postDataJSON().id, result },
+        json: { jsonrpc: '2.0', id: route.request().postDataJSON().id, ...payload },
     });
 }
 
@@ -27,16 +33,11 @@ async function expectResults(page: Page) {
 }
 
 test.describe('TLD URL on test results', () => {
-    // Clipboard contents are shared across browser contexts.
-    test.describe.configure({ mode: 'serial' });
-
     for (const url of ['https://www.afnic.fr/', 'http://www.afnic.fr/']) {
         test(`displays and copies ${url}`, async ({ page, context }) => {
             await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-            await mockTldUrl(page, (route) => fulfillTldUrl(route, { url }));
-            const requestPromise = page.waitForRequest(
-                (request) => request.postDataJSON()?.method === 'get_tld_url',
-            );
+            await mockTldUrl(page, (route) => fulfillRpc(route, { result: { url } }));
+            const requestPromise = page.waitForRequest(isTldUrlRequest);
 
             await page.goto(resultPath);
             const request = await requestPromise;
@@ -58,49 +59,41 @@ test.describe('TLD URL on test results', () => {
         });
     }
 
-    for (const [description, result] of [
-        ['omitted', {}],
-        ['empty', { url: '' }],
-    ] as const) {
-        test(`hides the button when the URL is ${description}`, async ({ page }) => {
-            await mockTldUrl(page, (route) => fulfillTldUrl(route, result));
-            const responsePromise = page.waitForResponse(
-                (response) => response.request().postDataJSON()?.method === 'get_tld_url',
+    const hiddenButtonCases = [
+        {
+            description: 'the URL is omitted',
+            response: { result: {} },
+        },
+        {
+            description: 'the URL is empty',
+            response: { result: { url: '' } },
+        },
+        {
+            description: 'the backend returns an RPC error',
+            response: { error: { code: -32601, message: 'Method not found' } },
+        },
+        {
+            description: 'the request fails',
+            response: null,
+        },
+    ];
+
+    for (const { description, response } of hiddenButtonCases) {
+        test(`hides the button when ${description}`, async ({ page }) => {
+            const errors: Error[] = [];
+            page.on('pageerror', (error) => errors.push(error));
+            await mockTldUrl(page, (route) =>
+                response ? fulfillRpc(route, response) : route.abort('failed'),
             );
+            const settled = response
+                ? page.waitForEvent('requestfinished', isTldUrlRequest)
+                : page.waitForEvent('requestfailed', isTldUrlRequest);
 
             await page.goto(resultPath);
-            await (await responsePromise).finished();
+            await settled;
             await expectResults(page);
             await expect(page.locator('#zmTLDURLButton')).toBeHidden();
-        });
-    }
-
-    for (const failure of ['RPC error', 'network error']) {
-        test(`keeps results visible after a ${failure}`, async ({ page }) => {
-            await mockTldUrl(page, async (route) => {
-                if (failure === 'network error') {
-                    await route.abort('failed');
-                } else {
-                    await route.fulfill({
-                        json: {
-                            jsonrpc: '2.0',
-                            id: route.request().postDataJSON().id,
-                            error: { code: -32601, message: 'Method not found' },
-                        },
-                    });
-                }
-            });
-            const isTldUrlRequest = (request: Request) =>
-                request.postDataJSON()?.method === 'get_tld_url';
-            const requestPromise =
-                failure === 'network error'
-                    ? page.waitForEvent('requestfailed', isTldUrlRequest)
-                    : page.waitForEvent('requestfinished', isTldUrlRequest);
-
-            await page.goto(resultPath);
-            await requestPromise;
-            await expectResults(page);
-            await expect(page.locator('#zmTLDURLButton')).toBeHidden();
+            expect(errors).toEqual([]);
         });
     }
 
@@ -111,11 +104,9 @@ test.describe('TLD URL on test results', () => {
         });
         await mockTldUrl(page, async (route) => {
             await pending;
-            await fulfillTldUrl(route, { url: 'https://www.afnic.fr/' });
+            await fulfillRpc(route, { result: { url: 'https://www.afnic.fr/' } });
         });
-        const requestPromise = page.waitForRequest(
-            (request) => request.postDataJSON()?.method === 'get_tld_url',
-        );
+        const requestPromise = page.waitForRequest(isTldUrlRequest);
 
         try {
             await page.goto(resultPath, { waitUntil: 'domcontentloaded' });
